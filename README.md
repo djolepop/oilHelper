@@ -95,4 +95,4 @@ This tool was built primarily for personal use according to specific gameplay ne
 
 ## License
 
-[MIT License](LICENSE)
+[GPL-3.0 License](LICENSE)
