@@ -6,8 +6,6 @@ A Chrome extension designed to optimize gameplay in PetroleumLand by analyzing p
 
 PetroleumLand Helper enhances your gameplay experience by providing data-driven recommendations for maximum efficiency. The extension analyzes your plots, pumps, and decay times to calculate the optimal balance between repairs and expansion.
 
-![PetroleumLand Helper Screenshot](https://placeholder-for-screenshot.png)
-
 ## Features
 
 - **Dashboard Analysis**: Calculates hourly and daily production rates across all plots
