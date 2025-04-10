@@ -700,18 +700,15 @@ async function updateDashboardData() {
     const previousTimestamp = completedResults.dashboardUpdateTime || completedResults.timestamp || Date.now();
     const currentTime = Date.now();
     
-    // Calculate time difference since last update in minutes
     const minutesElapsed = Math.max(0, Math.floor((currentTime - previousTimestamp) / (60 * 1000)));
     console.log(`Time elapsed since last update: ${minutesElapsed} minutes`);
     
-    // Update decay batches with the elapsed time
     if (completedResults.reinvestmentData && 
         completedResults.reinvestmentData.decayBatches && 
         Array.isArray(completedResults.reinvestmentData.decayBatches)) {
       
       for (const batch of completedResults.reinvestmentData.decayBatches) {
         if (batch.originalTimeStamp) {
-          // Adjust minute offset based on elapsed time
           const minutesRemaining = Math.max(0, Math.floor((batch.originalTimeStamp - currentTime) / (60 * 1000)));
           batch.minute = minutesRemaining;
           batch.minuteOffset = minutesRemaining;
@@ -724,7 +721,6 @@ async function updateDashboardData() {
           batch.minuteOffset = minutesRemaining;
           batch.time = new Date(batch.timeStamp);
         } else if (batch.minute !== undefined) {
-          // This is a bit of a fallback if timestamps aren't available
           batch.minute = Math.max(0, batch.minute - minutesElapsed);
           batch.minuteOffset = batch.minute;
           const newTime = new Date(currentTime + batch.minute * 60 * 1000);
@@ -734,25 +730,18 @@ async function updateDashboardData() {
         }
       }
       
-      // Filter out batches that have already occurred
       completedResults.reinvestmentData.decayBatches = 
         completedResults.reinvestmentData.decayBatches.filter(batch => batch.minute > 0);
     }
     
-    // Regenerate balance projections based on new data and adjusted time
     if (completedResults.plotsWithDetails) {
       try {
-        // Clear out old projections
         if (completedResults.reinvestmentData && completedResults.reinvestmentData.balanceProjections) {
-          // We might want to store some metadata from old projections if needed
-          // But for now, we'll just calculate new ones
         }
         
-        // Calculate new reinvestment data
         const plotsWithDetails = completedResults.plotsWithDetails || [];
         const reinvestmentData = calculateReinvestmentPotential(dashboardData, plotsWithDetails);
         
-        // Update the stored results
         const updatedData = {
           ...completedResults,
           dashboardData: {
@@ -771,7 +760,6 @@ async function updateDashboardData() {
         
         localStorage.setItem('petroleumHelperCompleteResults', JSON.stringify(updatedData));
         
-        // Display updated results
         displayResults(dashboardData, plotsWithDetails, reinvestmentData);
         updateTimestampDisplay();
         
@@ -1019,13 +1007,11 @@ function calculateReinvestmentPotential(dashboardData, plotsWithDetails) {
   const decayEvents = [];
   let validPumpsFound = false;
   
-  // Process exact decay times from the plot details
   for (const plot of plotsWithDetails) {
     if (plot.pumpDetails && plot.pumpDetails.length > 0) {
       validPumpsFound = true;
       
       for (const pump of plot.pumpDetails) {
-        // If we have a stored timestamp for this pump, use it directly
         if (pump.decayTimeStamp && pump.decayTimeStamp > now.getTime()) {
           const decayTime = new Date(pump.decayTimeStamp);
           const decayMinutes = Math.floor((decayTime - now) / (60 * 1000));
@@ -1038,13 +1024,11 @@ function calculateReinvestmentPotential(dashboardData, plotsWithDetails) {
             originalTimeStamp: pump.decayTimeStamp
           });
         }
-        // Otherwise use the decay hours/text as before
         else if (pump.decayHours !== undefined && pump.decayHours > 0) {
           const decayMinutes = Math.floor(pump.decayHours * 60);
           const decayTime = new Date(now.getTime() + decayMinutes * 60 * 1000);
           const timeStamp = decayTime.getTime();
           
-          // Store the timestamp for future reference
           pump.decayTimeStamp = timeStamp;
           
           decayEvents.push({
@@ -1061,9 +1045,8 @@ function calculateReinvestmentPotential(dashboardData, plotsWithDetails) {
             const decayTime = new Date(now.getTime() + decayMinutes * 60 * 1000);
             const timeStamp = decayTime.getTime();
             
-            // Store the timestamp for future reference
             pump.decayTimeStamp = timeStamp;
-            pump.decayHours = decayHours; // Also update the hours field
+            pump.decayHours = decayHours; 
             
             decayEvents.push({
               minute: decayMinutes,
@@ -1078,11 +1061,9 @@ function calculateReinvestmentPotential(dashboardData, plotsWithDetails) {
     }
   }
   
-  // Process the decay batches - group similar decay times
   const decayBatches = {};
   
   for (const event of decayEvents) {
-    // Round to the nearest 5 minutes for batching
     const roundedMinute = Math.floor(event.minute / 5) * 5;
     
     if (!decayBatches[roundedMinute]) {
@@ -1091,7 +1072,6 @@ function calculateReinvestmentPotential(dashboardData, plotsWithDetails) {
         minuteOffset: roundedMinute,
         count: 0,
         cost: 0,
-        // Important: use the actual event time rather than calculating from rounded minutes
         time: event.time,
         timeStamp: event.timeStamp,
         originalTimeStamp: event.originalTimeStamp
@@ -1102,7 +1082,6 @@ function calculateReinvestmentPotential(dashboardData, plotsWithDetails) {
     decayBatches[roundedMinute].cost += event.cost;
   }
   
-  // If no real data is available, generate some fake data
   if (!validPumpsFound || decayEvents.length === 0) {
     const totalPumps = dashboardData.totalActivePumps;
     
@@ -1153,34 +1132,26 @@ function calculateReinvestmentPotential(dashboardData, plotsWithDetails) {
     .filter(batch => batch.minute <= 12 * 60)
     .reduce((sum, batch) => sum + batch.cost, 0);
   
-  // Calculate balance projections for all upcoming repair events
   const balanceProjections = [];
   let runningBalance = availableAfterImmediateRepairs;
   let lastMinute = 0;
   let lowestBalance = runningBalance;
   let lowestBalanceEvent = null;
   
-  // Maximum simulation time - 48 hours
   const MAX_SIMULATION_HOURS = 48;
   
-  // Filter events within our simulation timeframe
   const eventsWithinTimeframe = sortedDecayBatches.filter(batch => 
     batch.minute <= MAX_SIMULATION_HOURS * 60
   );
   
-  // For each repair event, calculate the balance before and after the repair
   for (const batch of eventsWithinTimeframe) {
-    // Add production since last event
     const minutesSinceLastEvent = batch.minute - lastMinute;
     const productionSinceLast = minutesSinceLastEvent * minutelyProduction;
     
-    // Calculate balance before repair
     const balanceBeforeRepair = runningBalance + productionSinceLast;
     
-    // Calculate balance after repair
     const balanceAfterRepair = balanceBeforeRepair - batch.cost;
     
-    // Add to projections
     balanceProjections.push({
       time: batch.time,
       timeStamp: batch.timeStamp,
@@ -1194,11 +1165,9 @@ function calculateReinvestmentPotential(dashboardData, plotsWithDetails) {
       productionSinceLast: productionSinceLast
     });
     
-    // Update running balance
     runningBalance = balanceAfterRepair;
     lastMinute = batch.minute;
     
-    // Track lowest balance
     if (balanceAfterRepair < lowestBalance) {
       lowestBalance = balanceAfterRepair;
       lowestBalanceEvent = batch;
@@ -1243,11 +1212,9 @@ function displayResults(dashboardData, plotsWithDetails, reinvestmentData) {
     <p><strong>Available for New Pumps:</strong> ${Math.max(0, reinvestmentData.availableAfterImmediateRepairs).toFixed(2)} cOIL (${reinvestmentData.maxImmediateReinvestPumps} pumps)</p>
   `;
   
-  // Balance Projection Section (replaces Pump Purchase Schedule)
   const projectionSection = document.createElement('div');
   projectionSection.innerHTML = `<h3>Balance Projection</h3>`;
   
-  // Basic info about starting point
   const projectionInfo = document.createElement('div');
   projectionInfo.style.padding = '8px';
   projectionInfo.style.backgroundColor = '#333';
@@ -1258,7 +1225,6 @@ function displayResults(dashboardData, plotsWithDetails, reinvestmentData) {
     <p>Production rate: ${dashboardData.hourlyProduction.toFixed(2)} cOIL/hour (${dashboardData.minutelyProduction.toFixed(2)} cOIL/minute)</p>
   `;
   
-  // Lowest balance info
   const lowestBalanceInfo = document.createElement('div');
   lowestBalanceInfo.style.backgroundColor = reinvestmentData.lowestProjectedBalance < 0 ? '#8B0000' : '#1a4d33';
   lowestBalanceInfo.style.padding = '10px';
@@ -1285,7 +1251,6 @@ function displayResults(dashboardData, plotsWithDetails, reinvestmentData) {
   projectionSection.appendChild(projectionInfo);
   projectionSection.appendChild(lowestBalanceInfo);
   
-  // Balance projection table
   if (reinvestmentData.balanceProjections && reinvestmentData.balanceProjections.length > 0) {
     const projectionTable = document.createElement('table');
     projectionTable.style.width = '100%';
@@ -1305,21 +1270,17 @@ projectionTable.appendChild(tableHeader);
     
     const tableBody = document.createElement('tbody');
     
-    // Sort projections by time
     const sortedByTime = [...reinvestmentData.balanceProjections]
       .sort((a, b) => a.minute - b.minute);
     
-    // Calculate and assign highlight types
     const highlightMap = new Map();
     
-    // Find lowest points in a sequential manner
     let remainingPoints = [...sortedByTime];
     let iteration = 0;
     
-    while (remainingPoints.length > 0 && iteration < 100) { // safety limit for iterations
+    while (remainingPoints.length > 0 && iteration < 100) { 
       iteration++;
       
-      // Find the lowest point in the current set
       let lowestIdx = 0;
       let lowestVal = Infinity;
       
@@ -1330,41 +1291,34 @@ projectionTable.appendChild(tableHeader);
         }
       }
       
-      // Mark the lowest point
       const lowestPoint = remainingPoints[lowestIdx];
       
-      // First iteration gets green, all others get yellow
       if (iteration === 1) {
         highlightMap.set(lowestPoint, 'lowest');
       } else {
         highlightMap.set(lowestPoint, 'next-lowest');
       }
       
-      // Remove this point and all before it from the remaining set
       remainingPoints = remainingPoints.slice(lowestIdx + 1);
     }
     
-    // Create rows for each projection
     for (const projection of sortedByTime) {
       const row = document.createElement('tr');
       
-      // Determine if this is a highlighted point
       const highlightType = highlightMap.get(projection);
       
-      // Style the row based on its classification
       if (highlightType === 'lowest') {
-        row.style.backgroundColor = '#1a4d33'; // Green background
-        row.style.color = '#ffffff';           // White text
+        row.style.backgroundColor = '#1a4d33'; 
+        row.style.color = '#ffffff';           
         row.style.fontWeight = 'bold';
         row.title = 'Lowest projected balance';
       } else if (highlightType === 'next-lowest') {
-        row.style.backgroundColor = '#FFC107'; // Yellow background  
-        row.style.color = '#000000';           // Black text
+        row.style.backgroundColor = '#FFC107'; 
+        row.style.color = '#000000';           
         row.style.fontWeight = 'bold';
         row.title = 'Next lowest balance after previous highlighted point';
       }
       
-      // Format time
       const timeCell = document.createElement('td');
       timeCell.style.textAlign = 'left';
       timeCell.style.padding = '5px';
@@ -1380,7 +1334,6 @@ projectionTable.appendChild(tableHeader);
           displayTime = formatTime(new Date(now.getTime() + projection.minute * 60 * 1000));
         }
         
-        // Add time from now
         const minutesFromNow = projection.minute;
         const hoursMinutes = `${Math.floor(minutesFromNow / 60)}h ${minutesFromNow % 60}m`;
         displayTime += ` (${hoursMinutes})`;
@@ -1390,26 +1343,22 @@ projectionTable.appendChild(tableHeader);
       
       timeCell.textContent = displayTime;
       
-      // Format repair cost
       const repairCell = document.createElement('td');
       repairCell.style.textAlign = 'right';
       repairCell.style.padding = '5px';
       repairCell.style.borderBottom = '1px solid #333';
       repairCell.textContent = `${projection.pumpCount} pumps (${projection.repairCost.toFixed(2)} cOIL)`;
       
-      // Format balance before repair
       const beforeCell = document.createElement('td');
       beforeCell.style.textAlign = 'right';
       beforeCell.style.padding = '5px';
       beforeCell.style.borderBottom = '1px solid #333';
       beforeCell.textContent = `${projection.balanceBeforeRepair.toFixed(2)} cOIL`;
       
-      // Format balance after repair
       const afterCell = document.createElement('td');
       afterCell.style.textAlign = 'right';
       afterCell.style.padding = '5px';
       afterCell.style.borderBottom = '1px solid #333';
-      // Only apply red color if not a highlighted row
       afterCell.style.color = projection.balanceAfterRepair < 0 && !highlightType ? '#FF6666' : 'inherit';
       afterCell.textContent = `${projection.balanceAfterRepair.toFixed(2)} cOIL`;
       
@@ -1434,7 +1383,6 @@ projectionTable.appendChild(tableHeader);
     projectionSection.appendChild(noProjectionsInfo);
   }
   
-  // Continue with decay section (unchanged)
   const decaySection = document.createElement('div');
   decaySection.innerHTML = `<h3>Upcoming Pump Decays</h3>`;
   
@@ -1529,7 +1477,6 @@ projectionTable.appendChild(tableHeader);
   decayTable.appendChild(decayTableBody);
   decaySection.appendChild(decayTable);
   
-  // Plot details section (unchanged)
   const plotsSection = document.createElement('div');
   plotsSection.innerHTML = `<h3>Plot Details</h3>`;
   
