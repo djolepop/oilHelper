@@ -683,158 +683,105 @@ async function continueAnalysis() {
 async function updateDashboardData() {
   const resultsContainer = document.getElementById('analysis-results');
   const timestampInfo = document.getElementById('data-timestamps');
+  
   resultsContainer.innerHTML = '<p>Updating dashboard data...</p>';
+  
   try {
     const dashboardData = await getDashboardData();
+    
     const completedResultsString = localStorage.getItem('petroleumHelperCompleteResults');
     if (!completedResultsString) {
       resultsContainer.innerHTML = '<p>No previous analysis found. Please run a full analysis first.</p>';
       return;
     }
+    
     const completedResults = JSON.parse(completedResultsString);
-    const originalDecayBatches = completedResults.reinvestmentData &&
-      completedResults.reinvestmentData.decayBatches ?
-      JSON.parse(JSON.stringify(completedResults.reinvestmentData.decayBatches)) : [];
-    const updatedData = {
-      ...completedResults,
-      dashboardData: {
-        currentBalance: dashboardData.currentBalance,
-        unclaimedRewards: dashboardData.unclaimedRewards,
-        totalAvailable: dashboardData.totalAvailable,
-        totalDailyProduction: dashboardData.totalDailyProduction,
-        hourlyProduction: dashboardData.hourlyProduction,
-        minutelyProduction: dashboardData.minutelyProduction,
-        totalActivePumps: dashboardData.totalActivePumps,
-        totalDecayedPumps: dashboardData.totalDecayedPumps
-      },
-      dashboardUpdateTime: Date.now()
-    };
-    try {
-      const plotsWithDetails = completedResults.plotsWithDetails || [];
-      const currentTime = Date.now();
-      const updatedDecayBatches = originalDecayBatches
-        .filter(batch => {
-          if (batch.originalTimeStamp) {
-            return batch.originalTimeStamp > currentTime;
-          } else if (batch.timeStamp) {
-            return batch.timeStamp > currentTime;
-          }
-          return false;
-        })
-        .map(batch => {
-          const targetTime = batch.originalTimeStamp || batch.timeStamp;
-          const minutesRemaining = Math.max(0, Math.floor((targetTime - currentTime) / (60 * 1000)));
-          return {
-            ...batch,
-            minute: minutesRemaining,
-            minuteOffset: minutesRemaining,
-            timeStamp: targetTime,
-            originalTimeStamp: targetTime,
-            time: new Date(targetTime)
-          };
-        })
-        .sort((a, b) => a.minute - b.minute);
-      const immediateRepairCost = dashboardData.totalDecayedPumps * 50;
-      const availableAfterImmediateRepairs = Math.max(0, dashboardData.totalAvailable - immediateRepairCost);
-      const repairCostsByMinute = {};
-      let totalRepairCosts = 0;
-      for (const batch of updatedDecayBatches) {
-        repairCostsByMinute[batch.minute] = batch.cost;
-        totalRepairCosts += batch.cost;
-      }
-      const firstRepair = updatedDecayBatches.length > 0 ? updatedDecayBatches[0] : null;
-      const nextCriticalRepairTime = firstRepair ? formatMinutes(firstRepair.minute) : "None";
-      const next12HoursRepairs = updatedDecayBatches
-        .filter(batch => batch.minute <= 12 * 60)
-        .reduce((sum, batch) => sum + batch.cost, 0);
-      const next12HoursProduction = 12 * dashboardData.hourlyProduction;
-      const balanceAfter12Hours = availableAfterImmediateRepairs + next12HoursProduction - next12HoursRepairs;
-      let recommendedPumps = 0;
-      let reservedForUpcomingRepairs = 0;
-      if (balanceAfter12Hours >= 0) {
-        let simulatedBalance = availableAfterImmediateRepairs;
-        let lowestBalance = simulatedBalance;
-        let lowestMinute = 0;
-        for (let minute = 1; minute <= 12 * 60; minute++) {
-          simulatedBalance += dashboardData.minutelyProduction;
-          if (repairCostsByMinute[minute]) {
-            simulatedBalance -= repairCostsByMinute[minute];
-          }
-          if (simulatedBalance < lowestBalance) {
-            lowestBalance = simulatedBalance;
-            lowestMinute = minute;
-          }
-        }
-        if (lowestBalance >= 0) {
-          recommendedPumps = Math.floor(lowestBalance / 50);
-          reservedForUpcomingRepairs = availableAfterImmediateRepairs - (recommendedPumps * 50);
-        } else {
-          reservedForUpcomingRepairs = Math.abs(lowestBalance);
-          const safeToSpend = availableAfterImmediateRepairs - reservedForUpcomingRepairs;
-          recommendedPumps = Math.max(0, Math.floor(safeToSpend / 50));
-        }
-      } else {
-        reservedForUpcomingRepairs = availableAfterImmediateRepairs;
-        recommendedPumps = 0;
-      }
-      const pumpPurchaseSchedule = [];
-      const maxImmediateReinvestPumps = Math.floor(availableAfterImmediateRepairs / 50);
-      let runningBalance = availableAfterImmediateRepairs - (recommendedPumps * 50);
-      let nextPumpNumber = recommendedPumps + 1;
-      for (let minute = 1; minute <= 24 * 60; minute++) {
-        runningBalance += dashboardData.minutelyProduction;
-        if (repairCostsByMinute[minute]) {
-          runningBalance -= repairCostsByMinute[minute];
-        }
-        if (runningBalance >= 50) {
-          let sufficientBuffer = true;
-          let tempBalance = runningBalance - 50;
-          for (let futureMinute = minute + 1; futureMinute <= minute + 60; futureMinute++) {
-            if (repairCostsByMinute[futureMinute]) {
-              tempBalance -= repairCostsByMinute[futureMinute];
-              if (tempBalance < 0) {
-                sufficientBuffer = false;
-                break;
-              }
-            }
-            tempBalance += dashboardData.minutelyProduction;
-          }
-          if (sufficientBuffer) {
-            const pumpTime = new Date(currentTime + minute * 60 * 1000);
-            const pumpTimeStamp = pumpTime.getTime();
-            pumpPurchaseSchedule.push({
-              pumpNumber: nextPumpNumber,
-              time: pumpTime,
-              timeStamp: pumpTimeStamp,
-              originalTimeStamp: pumpTimeStamp,
-              oilNeeded: nextPumpNumber * 50,
-              minute
-            });
-            runningBalance -= 50;
-            nextPumpNumber++;
-            if (pumpPurchaseSchedule.length >= 20) break;
-          }
+    const previousDashboardData = completedResults.dashboardData || {};
+    const previousTimestamp = completedResults.dashboardUpdateTime || completedResults.timestamp || Date.now();
+    const currentTime = Date.now();
+    
+    // Calculate time difference since last update in minutes
+    const minutesElapsed = Math.max(0, Math.floor((currentTime - previousTimestamp) / (60 * 1000)));
+    console.log(`Time elapsed since last update: ${minutesElapsed} minutes`);
+    
+    // Update decay batches with the elapsed time
+    if (completedResults.reinvestmentData && 
+        completedResults.reinvestmentData.decayBatches && 
+        Array.isArray(completedResults.reinvestmentData.decayBatches)) {
+      
+      for (const batch of completedResults.reinvestmentData.decayBatches) {
+        if (batch.originalTimeStamp) {
+          // Adjust minute offset based on elapsed time
+          const minutesRemaining = Math.max(0, Math.floor((batch.originalTimeStamp - currentTime) / (60 * 1000)));
+          batch.minute = minutesRemaining;
+          batch.minuteOffset = minutesRemaining;
+          batch.timeStamp = batch.originalTimeStamp;
+          batch.time = new Date(batch.originalTimeStamp);
+        } else if (batch.timeStamp) {
+          batch.originalTimeStamp = batch.timeStamp;
+          const minutesRemaining = Math.max(0, Math.floor((batch.timeStamp - currentTime) / (60 * 1000)));
+          batch.minute = minutesRemaining;
+          batch.minuteOffset = minutesRemaining;
+          batch.time = new Date(batch.timeStamp);
+        } else if (batch.minute !== undefined) {
+          // This is a bit of a fallback if timestamps aren't available
+          batch.minute = Math.max(0, batch.minute - minutesElapsed);
+          batch.minuteOffset = batch.minute;
+          const newTime = new Date(currentTime + batch.minute * 60 * 1000);
+          batch.time = newTime;
+          batch.timeStamp = newTime.getTime();
+          batch.originalTimeStamp = batch.timeStamp;
         }
       }
-      const updatedReinvestmentData = {
-        immediateRepairCost,
-        availableAfterImmediateRepairs,
-        maxImmediateReinvestPumps,
-        reservedForUpcomingRepairs,
-        recommendedPumps,
-        pumpPurchaseSchedule,
-        decayBatches: updatedDecayBatches,
-        totalRepairCosts,
-        nextCriticalRepair: nextCriticalRepairTime,
-        next12HoursRepairs
-      };
-      updatedData.reinvestmentData = updatedReinvestmentData;
-      localStorage.setItem('petroleumHelperCompleteResults', JSON.stringify(updatedData));
-      displayResults(dashboardData, plotsWithDetails, updatedReinvestmentData);
-      updateTimestampDisplay();
-    } catch (error) {
-      resultsContainer.innerHTML = `<p style="color: red;">Error recalculating recommendations: ${error.message}</p>`;
-      console.error("Error during dashboard update:", error);
+      
+      // Filter out batches that have already occurred
+      completedResults.reinvestmentData.decayBatches = 
+        completedResults.reinvestmentData.decayBatches.filter(batch => batch.minute > 0);
+    }
+    
+    // Regenerate balance projections based on new data and adjusted time
+    if (completedResults.plotsWithDetails) {
+      try {
+        // Clear out old projections
+        if (completedResults.reinvestmentData && completedResults.reinvestmentData.balanceProjections) {
+          // We might want to store some metadata from old projections if needed
+          // But for now, we'll just calculate new ones
+        }
+        
+        // Calculate new reinvestment data
+        const plotsWithDetails = completedResults.plotsWithDetails || [];
+        const reinvestmentData = calculateReinvestmentPotential(dashboardData, plotsWithDetails);
+        
+        // Update the stored results
+        const updatedData = {
+          ...completedResults,
+          dashboardData: {
+            currentBalance: dashboardData.currentBalance,
+            unclaimedRewards: dashboardData.unclaimedRewards,
+            totalAvailable: dashboardData.totalAvailable,
+            totalDailyProduction: dashboardData.totalDailyProduction,
+            hourlyProduction: dashboardData.hourlyProduction,
+            minutelyProduction: dashboardData.minutelyProduction,
+            totalActivePumps: dashboardData.totalActivePumps,
+            totalDecayedPumps: dashboardData.totalDecayedPumps
+          },
+          reinvestmentData: reinvestmentData,
+          dashboardUpdateTime: currentTime
+        };
+        
+        localStorage.setItem('petroleumHelperCompleteResults', JSON.stringify(updatedData));
+        
+        // Display updated results
+        displayResults(dashboardData, plotsWithDetails, reinvestmentData);
+        updateTimestampDisplay();
+        
+        resultsContainer.innerHTML += '<p style="color: green;">Dashboard data successfully updated!</p>';
+      } catch (error) {
+        resultsContainer.innerHTML = `<p style="color: red;">Error recalculating projections: ${error.message}</p>`;
+        console.error("Error during projection recalculation:", error);
+      }
+    } else {
+      resultsContainer.innerHTML = `<p style="color: red;">No plot details found in saved data. Please run a full analysis.</p>`;
     }
   } catch (error) {
     resultsContainer.innerHTML = `<p style="color: red;">Error updating dashboard data: ${error.message}</p>`;
@@ -842,7 +789,7 @@ async function updateDashboardData() {
   }
 }
 
-function updateTimestampDisplay() {
+async function updateTimestampDisplay() {
   const timestampInfo = document.getElementById('data-timestamps');
   if (!timestampInfo) return;
   try {
@@ -1049,14 +996,14 @@ function calculateReinvestmentPotential(dashboardData, plotsWithDetails) {
       maxImmediateReinvestPumps: 0,
       reservedForUpcomingRepairs: 0,
       recommendedPumps: 0,
-      pumpPurchaseSchedule: [],
+      balanceProjections: [],
       decayBatches: [],
       totalRepairCosts: 0,
       nextCriticalRepair: "None",
       next12HoursRepairs: 0
     };
   }
-  console.log("Found decay events:", plotsWithDetails);
+  
   const {
     currentBalance,
     unclaimedRewards,
@@ -1064,179 +1011,211 @@ function calculateReinvestmentPotential(dashboardData, plotsWithDetails) {
     hourlyProduction,
     minutelyProduction
   } = dashboardData;
+  
   const now = new Date();
   const immediateRepairCost = dashboardData.totalDecayedPumps * 50;
   const availableAfterImmediateRepairs = Math.max(0, totalAvailable - immediateRepairCost);
+  
   const decayEvents = [];
   let validPumpsFound = false;
+  
+  // Process exact decay times from the plot details
   for (const plot of plotsWithDetails) {
     if (plot.pumpDetails && plot.pumpDetails.length > 0) {
       validPumpsFound = true;
+      
       for (const pump of plot.pumpDetails) {
-        if (pump.decayHours !== undefined && pump.decayHours > 0) {
-          const decayMinutes = Math.floor(pump.decayHours * 60);
-          const decayTime = new Date(now.getTime() + decayMinutes * 60 * 1000);
+        // If we have a stored timestamp for this pump, use it directly
+        if (pump.decayTimeStamp && pump.decayTimeStamp > now.getTime()) {
+          const decayTime = new Date(pump.decayTimeStamp);
+          const decayMinutes = Math.floor((decayTime - now) / (60 * 1000));
+          
           decayEvents.push({
             minute: decayMinutes,
             cost: 50,
             time: decayTime,
-            originalTimeStamp: decayTime.getTime()
+            timeStamp: pump.decayTimeStamp,
+            originalTimeStamp: pump.decayTimeStamp
+          });
+        }
+        // Otherwise use the decay hours/text as before
+        else if (pump.decayHours !== undefined && pump.decayHours > 0) {
+          const decayMinutes = Math.floor(pump.decayHours * 60);
+          const decayTime = new Date(now.getTime() + decayMinutes * 60 * 1000);
+          const timeStamp = decayTime.getTime();
+          
+          // Store the timestamp for future reference
+          pump.decayTimeStamp = timeStamp;
+          
+          decayEvents.push({
+            minute: decayMinutes,
+            cost: 50,
+            time: decayTime,
+            timeStamp: timeStamp,
+            originalTimeStamp: timeStamp
           });
         } else if (pump.decayTimeText && pump.decayTimeText.trim() !== "") {
           const decayHours = timeStringToHours(pump.decayTimeText);
           if (decayHours > 0) {
             const decayMinutes = Math.floor(decayHours * 60);
             const decayTime = new Date(now.getTime() + decayMinutes * 60 * 1000);
+            const timeStamp = decayTime.getTime();
+            
+            // Store the timestamp for future reference
+            pump.decayTimeStamp = timeStamp;
+            pump.decayHours = decayHours; // Also update the hours field
+            
             decayEvents.push({
               minute: decayMinutes,
               cost: 50,
               time: decayTime,
-              originalTimeStamp: decayTime.getTime()
+              timeStamp: timeStamp,
+              originalTimeStamp: timeStamp
             });
           }
         }
       }
-      console.log(`Found ${decayEvents.length} valid decay events`);
     }
   }
+  
+  // Process the decay batches - group similar decay times
   const decayBatches = {};
+  
   for (const event of decayEvents) {
+    // Round to the nearest 5 minutes for batching
     const roundedMinute = Math.floor(event.minute / 5) * 5;
+    
     if (!decayBatches[roundedMinute]) {
       decayBatches[roundedMinute] = {
         minute: roundedMinute,
         minuteOffset: roundedMinute,
         count: 0,
         cost: 0,
+        // Important: use the actual event time rather than calculating from rounded minutes
         time: event.time,
-        timeStamp: event.time.getTime(),
+        timeStamp: event.timeStamp,
         originalTimeStamp: event.originalTimeStamp
       };
     }
+    
     decayBatches[roundedMinute].count++;
     decayBatches[roundedMinute].cost += event.cost;
   }
-  console.log(`Grouped into ${Object.keys(decayBatches).length} batches`);
+  
+  // If no real data is available, generate some fake data
   if (!validPumpsFound || decayEvents.length === 0) {
-    console.log("No valid decay data found. Using fallback estimation based on pump count.");
     const totalPumps = dashboardData.totalActivePumps;
+    
     if (totalPumps > 0) {
       for (let hour = 1; hour <= 48; hour++) {
         const pumpsDecayingThisHour = Math.max(1, Math.round(totalPumps * 0.02 * (Math.random() * 0.5 + 0.75)));
+        
         const roundedMinute = Math.floor(hour * 60 / 5) * 5;
         const decayTime = new Date(now.getTime() + roundedMinute * 60 * 1000);
+        const timeStamp = decayTime.getTime();
+        
         decayBatches[roundedMinute] = {
           minute: roundedMinute,
           minuteOffset: roundedMinute,
           count: pumpsDecayingThisHour,
           cost: pumpsDecayingThisHour * 50,
           time: decayTime,
-          timeStamp: decayTime.getTime(),
-          originalTimeStamp: decayTime.getTime()
+          timeStamp: timeStamp,
+          originalTimeStamp: timeStamp
         };
       }
     } else {
       for (let hour = 1; hour <= 24; hour += 4) {
         const roundedMinute = Math.floor(hour * 60 / 5) * 5;
         const decayTime = new Date(now.getTime() + roundedMinute * 60 * 1000);
+        const timeStamp = decayTime.getTime();
+        
         decayBatches[roundedMinute] = {
           minute: roundedMinute,
           minuteOffset: roundedMinute,
           count: 5 + Math.floor(Math.random() * 6),
           cost: (5 + Math.floor(Math.random() * 6)) * 50,
           time: decayTime,
-          timeStamp: decayTime.getTime(),
-          originalTimeStamp: decayTime.getTime()
+          timeStamp: timeStamp,
+          originalTimeStamp: timeStamp
         };
       }
     }
   }
+  
   const sortedDecayBatches = Object.values(decayBatches).sort((a, b) => a.minute - b.minute);
   const totalRepairCosts = sortedDecayBatches.reduce((sum, batch) => sum + batch.cost, 0);
-  const repairCostsByMinute = {};
-  for (const batch of sortedDecayBatches) {
-    repairCostsByMinute[batch.minute] = batch.cost;
-  }
+  
   const firstRepair = sortedDecayBatches.length > 0 ? sortedDecayBatches[0] : null;
   const nextCriticalRepairTime = firstRepair ? formatMinutes(firstRepair.minute) : "None";
+  
   const next12HoursRepairs = sortedDecayBatches
     .filter(batch => batch.minute <= 12 * 60)
     .reduce((sum, batch) => sum + batch.cost, 0);
-  const next12HoursProduction = 12 * hourlyProduction;
-  const balanceAfter12Hours = availableAfterImmediateRepairs + next12HoursProduction - next12HoursRepairs;
-  let recommendedPumps = 0;
-  let reservedForUpcomingRepairs = 0;
-  if (balanceAfter12Hours >= 0) {
-    let simulatedBalance = availableAfterImmediateRepairs;
-    let lowestBalance = simulatedBalance;
-    let lowestMinute = 0;
-    for (let minute = 1; minute <= 12 * 60; minute++) {
-      simulatedBalance += minutelyProduction;
-      if (repairCostsByMinute[minute]) {
-        simulatedBalance -= repairCostsByMinute[minute];
-      }
-      if (simulatedBalance < lowestBalance) {
-        lowestBalance = simulatedBalance;
-        lowestMinute = minute;
-      }
-    }
-    if (lowestBalance >= 0) {
-      recommendedPumps = Math.floor(lowestBalance / 50);
-      reservedForUpcomingRepairs = availableAfterImmediateRepairs - (recommendedPumps * 50);
-    } else {
-      reservedForUpcomingRepairs = Math.abs(lowestBalance);
-      const safeToSpend = availableAfterImmediateRepairs - reservedForUpcomingRepairs;
-      recommendedPumps = Math.max(0, Math.floor(safeToSpend / 50));
-    }
-  } else {
-    reservedForUpcomingRepairs = availableAfterImmediateRepairs;
-    recommendedPumps = 0;
-  }
-  const pumpPurchaseSchedule = [];
-  const maxImmediateReinvestPumps = Math.floor(availableAfterImmediateRepairs / 50);
-  let runningBalance = Math.max(0, availableAfterImmediateRepairs - (recommendedPumps * 50));
-  let nextPumpNumber = recommendedPumps + 1;
-  for (let minute = 1; minute <= 24 * 60; minute++) {
-    runningBalance += minutelyProduction;
-    if (repairCostsByMinute[minute]) {
-      runningBalance -= repairCostsByMinute[minute];
-    }
-    if (runningBalance >= 50) {
-      let sufficientBuffer = true;
-      let tempBalance = runningBalance - 50;
-      for (let futureMinute = minute + 1; futureMinute <= minute + 60; futureMinute++) {
-        if (repairCostsByMinute[futureMinute]) {
-          tempBalance -= repairCostsByMinute[futureMinute];
-          if (tempBalance < 0) {
-            sufficientBuffer = false;
-            break;
-          }
-        }
-        tempBalance += minutelyProduction;
-      }
-      if (sufficientBuffer) {
-        const pumpTime = new Date(now.getTime() + minute * 60 * 1000);
-        pumpPurchaseSchedule.push({
-          pumpNumber: nextPumpNumber,
-          time: pumpTime,
-          timeStamp: pumpTime.getTime(),
-          originalTimeStamp: pumpTime.getTime(),
-          oilNeeded: nextPumpNumber * 50,
-          minute
-        });
-        runningBalance -= 50;
-        nextPumpNumber++;
-        if (pumpPurchaseSchedule.length >= 20) break;
-      }
+  
+  // Calculate balance projections for all upcoming repair events
+  const balanceProjections = [];
+  let runningBalance = availableAfterImmediateRepairs;
+  let lastMinute = 0;
+  let lowestBalance = runningBalance;
+  let lowestBalanceEvent = null;
+  
+  // Maximum simulation time - 48 hours
+  const MAX_SIMULATION_HOURS = 48;
+  
+  // Filter events within our simulation timeframe
+  const eventsWithinTimeframe = sortedDecayBatches.filter(batch => 
+    batch.minute <= MAX_SIMULATION_HOURS * 60
+  );
+  
+  // For each repair event, calculate the balance before and after the repair
+  for (const batch of eventsWithinTimeframe) {
+    // Add production since last event
+    const minutesSinceLastEvent = batch.minute - lastMinute;
+    const productionSinceLast = minutesSinceLastEvent * minutelyProduction;
+    
+    // Calculate balance before repair
+    const balanceBeforeRepair = runningBalance + productionSinceLast;
+    
+    // Calculate balance after repair
+    const balanceAfterRepair = balanceBeforeRepair - batch.cost;
+    
+    // Add to projections
+    balanceProjections.push({
+      time: batch.time,
+      timeStamp: batch.timeStamp,
+      originalTimeStamp: batch.originalTimeStamp,
+      minute: batch.minute,
+      minutesFromNow: batch.minute,
+      pumpCount: batch.count,
+      repairCost: batch.cost,
+      balanceBeforeRepair: balanceBeforeRepair,
+      balanceAfterRepair: balanceAfterRepair,
+      productionSinceLast: productionSinceLast
+    });
+    
+    // Update running balance
+    runningBalance = balanceAfterRepair;
+    lastMinute = batch.minute;
+    
+    // Track lowest balance
+    if (balanceAfterRepair < lowestBalance) {
+      lowestBalance = balanceAfterRepair;
+      lowestBalanceEvent = batch;
     }
   }
+  
   return {
     immediateRepairCost,
     availableAfterImmediateRepairs,
-    maxImmediateReinvestPumps,
-    reservedForUpcomingRepairs,
-    recommendedPumps,
-    pumpPurchaseSchedule,
+    maxImmediateReinvestPumps: Math.floor(availableAfterImmediateRepairs / 50),
+    lowestProjectedBalance: lowestBalance,
+    lowestBalanceEvent: lowestBalanceEvent ? {
+      time: lowestBalanceEvent.time,
+      minute: lowestBalanceEvent.minute,
+      pumpCount: lowestBalanceEvent.count
+    } : null,
+    balanceProjections,
     decayBatches: sortedDecayBatches,
     totalRepairCosts,
     nextCriticalRepair: nextCriticalRepairTime,
@@ -1246,8 +1225,11 @@ function calculateReinvestmentPotential(dashboardData, plotsWithDetails) {
 
 function displayResults(dashboardData, plotsWithDetails, reinvestmentData) {
   const resultsContainer = document.getElementById('analysis-results');
+  
   const now = new Date();
+  
   resultsContainer.innerHTML = '';
+  
   const summarySection = document.createElement('div');
   summarySection.innerHTML = `
     <h3>Summary</h3>
@@ -1260,122 +1242,207 @@ function displayResults(dashboardData, plotsWithDetails, reinvestmentData) {
     <p><strong>Repair Cost:</strong> ${reinvestmentData.immediateRepairCost.toFixed(2)} cOIL</p>
     <p><strong>Available for New Pumps:</strong> ${Math.max(0, reinvestmentData.availableAfterImmediateRepairs).toFixed(2)} cOIL (${reinvestmentData.maxImmediateReinvestPumps} pumps)</p>
   `;
-  const scheduleSection = document.createElement('div');
-  scheduleSection.innerHTML = `<h3>Pump Purchase Schedule</h3>`;
-  const pumpInfo = document.createElement('div');
-  pumpInfo.style.marginBottom = '15px';
-  const maxAvailableInfo = document.createElement('div');
-  maxAvailableInfo.style.padding = '8px';
-  maxAvailableInfo.style.backgroundColor = '#333';
-  maxAvailableInfo.style.borderRadius = '4px';
-  maxAvailableInfo.style.marginBottom = '10px';
-  maxAvailableInfo.innerHTML = `
-    <p>Max available: ${reinvestmentData.maxImmediateReinvestPumps} pumps (${(reinvestmentData.maxImmediateReinvestPumps * 50).toFixed(2)} cOIL)</p>
-    <p>Reserved for upcoming repairs: ${(reinvestmentData.reservedForUpcomingRepairs || 0).toFixed(2)} cOIL</p>
+  
+  // Balance Projection Section (replaces Pump Purchase Schedule)
+  const projectionSection = document.createElement('div');
+  projectionSection.innerHTML = `<h3>Balance Projection</h3>`;
+  
+  // Basic info about starting point
+  const projectionInfo = document.createElement('div');
+  projectionInfo.style.padding = '8px';
+  projectionInfo.style.backgroundColor = '#333';
+  projectionInfo.style.borderRadius = '4px';
+  projectionInfo.style.marginBottom = '10px';
+  projectionInfo.innerHTML = `
+    <p>Starting balance: ${reinvestmentData.availableAfterImmediateRepairs.toFixed(2)} cOIL</p>
+    <p>Production rate: ${dashboardData.hourlyProduction.toFixed(2)} cOIL/hour (${dashboardData.minutelyProduction.toFixed(2)} cOIL/minute)</p>
   `;
-  const recommendedInfo = document.createElement('div');
-  recommendedInfo.style.backgroundColor = '#1a4d33';
-  recommendedInfo.style.padding = '10px';
-  recommendedInfo.style.borderRadius = '4px';
-  recommendedInfo.style.marginBottom = '10px';
-  recommendedInfo.style.fontWeight = 'bold';
-  let recommendationDetails = '';
-  if (reinvestmentData.recommendedPumps === 0 && reinvestmentData.nextCriticalRepair) {
-    recommendationDetails = `
-      <p>Cannot safely purchase pumps now due to upcoming repairs.</p>
-      <p>Next critical repair: ${reinvestmentData.nextCriticalRepair}</p>
-      ${reinvestmentData.nextCriticalRepairPumps ?
-        `<p>Pumps: ${reinvestmentData.nextCriticalRepairPumps}, Cost: ${(reinvestmentData.nextCriticalRepairCost || 0).toFixed(2)} cOIL</p>` : ''}
-      ${reinvestmentData.productionUntilRepair ?
-        `<p>Production until then: ${(reinvestmentData.productionUntilRepair || 0).toFixed(2)} cOIL</p>` : ''}
-    `;
-  } else if (reinvestmentData.nextCriticalRepair && reinvestmentData.nextCriticalRepair !== "None") {
-    recommendationDetails = `
-      <p>Reserved funds ensure coverage for ${(reinvestmentData.totalRepairCosts || 0).toFixed(2)} cOIL in upcoming repairs.</p>
-      <p>Next critical repair: ${reinvestmentData.nextCriticalRepair}</p>
+  
+  // Lowest balance info
+  const lowestBalanceInfo = document.createElement('div');
+  lowestBalanceInfo.style.backgroundColor = reinvestmentData.lowestProjectedBalance < 0 ? '#8B0000' : '#1a4d33';
+  lowestBalanceInfo.style.padding = '10px';
+  lowestBalanceInfo.style.borderRadius = '4px';
+  lowestBalanceInfo.style.marginBottom = '10px';
+  lowestBalanceInfo.style.fontWeight = 'bold';
+  
+  if (reinvestmentData.lowestBalanceEvent) {
+    const eventTime = reinvestmentData.lowestBalanceEvent.time instanceof Date ? 
+      formatTime(reinvestmentData.lowestBalanceEvent.time) : 
+      formatTime(new Date(now.getTime() + reinvestmentData.lowestBalanceEvent.minute * 60 * 1000));
+      
+    const minutesFromNow = reinvestmentData.lowestBalanceEvent.minute;
+    const hoursMinutes = `${Math.floor(minutesFromNow / 60)}h ${minutesFromNow % 60}m`;
+    
+    lowestBalanceInfo.innerHTML = `
+      <p>Lowest projected balance: ${reinvestmentData.lowestProjectedBalance.toFixed(2)} cOIL</p>
+      <p>Occurs at: ${eventTime} (in ${hoursMinutes})</p>
     `;
   } else {
-    recommendationDetails = `
-      <p>No critical repairs in the next 6 hours.</p>
+    lowestBalanceInfo.innerHTML = `<p>No repair events found in the next 48 hours.</p>`;
+  }
+  
+  projectionSection.appendChild(projectionInfo);
+  projectionSection.appendChild(lowestBalanceInfo);
+  
+  // Balance projection table
+  if (reinvestmentData.balanceProjections && reinvestmentData.balanceProjections.length > 0) {
+    const projectionTable = document.createElement('table');
+    projectionTable.style.width = '100%';
+    projectionTable.style.borderCollapse = 'collapse';
+    projectionTable.style.marginTop = '10px';
+    
+    const tableHeader = document.createElement('thead');
+    tableHeader.innerHTML = `
+      <tr>
+        <th style="text-align: left; padding: 5px; border-bottom: 1px solid #555;">Time</th>
+        <th style="text-align: right; padding: 5px; border-bottom: 1px solid #555;">Repair</th>
+        <th style="text-align: right; padding: 5px; border-bottom: 1px solid #555;">Before</th>
+        <th style="text-align: right; padding: 5px; border-bottom: 1px solid #555;">After</th>
+      </tr>
     `;
-  }
-  recommendedInfo.innerHTML = `
-    <p><strong>Recommended purchase: ${reinvestmentData.recommendedPumps} pumps (${(reinvestmentData.recommendedPumps * 50).toFixed(2)} cOIL)</strong></p>
-    ${recommendationDetails}
-  `;
-  pumpInfo.appendChild(maxAvailableInfo);
-  pumpInfo.appendChild(recommendedInfo);
-  scheduleSection.appendChild(pumpInfo);
-  const scheduleTable = document.createElement('table');
-  scheduleTable.style.width = '100%';
-  scheduleTable.style.borderCollapse = 'collapse';
-  scheduleTable.style.marginTop = '10px';
-  const tableHeader = document.createElement('thead');
-  tableHeader.innerHTML = `
-    <tr>
-      <th style="text-align: left; padding: 5px; border-bottom: 1px solid #555;">Time</th>
-      <th style="text-align: right; padding: 5px; border-bottom: 1px solid #555;">Pump #</th>
-      <th style="text-align: right; padding: 5px; border-bottom: 1px solid #555;">cOIL Needed</th>
-    </tr>
-  `;
-  scheduleTable.appendChild(tableHeader);
-  const tableBody = document.createElement('tbody');
-  const displayLimit = 20;
-  const pumpsToDisplay = reinvestmentData.pumpPurchaseSchedule ?
-    reinvestmentData.pumpPurchaseSchedule.slice(0, displayLimit) : [];
-  for (const pump of pumpsToDisplay) {
-    const row = document.createElement('tr');
-    const timeCell = document.createElement('td');
-    timeCell.style.textAlign = 'left';
-    timeCell.style.padding = '5px';
-    timeCell.style.borderBottom = '1px solid #333';
-    let displayTime = "Unknown";
-    try {
-      if (pump.time instanceof Date && !isNaN(pump.time.getTime())) {
-        displayTime = formatTime(pump.time);
-      } else if (pump.timeStamp) {
-        displayTime = formatTime(new Date(pump.timeStamp));
-      } else if (typeof pump.time === 'string') {
-        displayTime = formatTime(new Date(pump.time));
-      } else if (pump.minute !== undefined) {
-        const pumpTime = new Date(now.getTime() + (pump.minute * 60 * 1000));
-        displayTime = formatTime(pumpTime);
+projectionTable.appendChild(tableHeader);
+    
+    const tableBody = document.createElement('tbody');
+    
+    // Sort projections by time
+    const sortedByTime = [...reinvestmentData.balanceProjections]
+      .sort((a, b) => a.minute - b.minute);
+    
+    // Calculate and assign highlight types
+    const highlightMap = new Map();
+    
+    // Find lowest points in a sequential manner
+    let remainingPoints = [...sortedByTime];
+    let iteration = 0;
+    
+    while (remainingPoints.length > 0 && iteration < 100) { // safety limit for iterations
+      iteration++;
+      
+      // Find the lowest point in the current set
+      let lowestIdx = 0;
+      let lowestVal = Infinity;
+      
+      for (let i = 0; i < remainingPoints.length; i++) {
+        if (remainingPoints[i].balanceAfterRepair < lowestVal) {
+          lowestVal = remainingPoints[i].balanceAfterRepair;
+          lowestIdx = i;
+        }
       }
-    } catch (e) {
-      console.error("Error formatting time:", e);
+      
+      // Mark the lowest point
+      const lowestPoint = remainingPoints[lowestIdx];
+      
+      // First iteration gets green, all others get yellow
+      if (iteration === 1) {
+        highlightMap.set(lowestPoint, 'lowest');
+      } else {
+        highlightMap.set(lowestPoint, 'next-lowest');
+      }
+      
+      // Remove this point and all before it from the remaining set
+      remainingPoints = remainingPoints.slice(lowestIdx + 1);
     }
-    timeCell.textContent = displayTime;
-    const pumpNumberCell = document.createElement('td');
-    pumpNumberCell.style.textAlign = 'right';
-    pumpNumberCell.style.padding = '5px';
-    pumpNumberCell.style.borderBottom = '1px solid #333';
-    pumpNumberCell.textContent = pump.pumpNumber;
-    const oilNeededCell = document.createElement('td');
-    oilNeededCell.style.textAlign = 'right';
-    oilNeededCell.style.padding = '5px';
-    oilNeededCell.style.borderBottom = '1px solid #333';
-    oilNeededCell.textContent = `${pump.oilNeeded.toFixed(2)} cOIL`;
-    row.appendChild(timeCell);
-    row.appendChild(pumpNumberCell);
-    row.appendChild(oilNeededCell);
-    tableBody.appendChild(row);
+    
+    // Create rows for each projection
+    for (const projection of sortedByTime) {
+      const row = document.createElement('tr');
+      
+      // Determine if this is a highlighted point
+      const highlightType = highlightMap.get(projection);
+      
+      // Style the row based on its classification
+      if (highlightType === 'lowest') {
+        row.style.backgroundColor = '#1a4d33'; // Green background
+        row.style.color = '#ffffff';           // White text
+        row.style.fontWeight = 'bold';
+        row.title = 'Lowest projected balance';
+      } else if (highlightType === 'next-lowest') {
+        row.style.backgroundColor = '#FFC107'; // Yellow background  
+        row.style.color = '#000000';           // Black text
+        row.style.fontWeight = 'bold';
+        row.title = 'Next lowest balance after previous highlighted point';
+      }
+      
+      // Format time
+      const timeCell = document.createElement('td');
+      timeCell.style.textAlign = 'left';
+      timeCell.style.padding = '5px';
+      timeCell.style.borderBottom = '1px solid #333';
+      
+      let displayTime = "Unknown";
+      try {
+        if (projection.time instanceof Date && !isNaN(projection.time.getTime())) {
+          displayTime = formatTime(projection.time);
+        } else if (projection.timeStamp) {
+          displayTime = formatTime(new Date(projection.timeStamp));
+        } else {
+          displayTime = formatTime(new Date(now.getTime() + projection.minute * 60 * 1000));
+        }
+        
+        // Add time from now
+        const minutesFromNow = projection.minute;
+        const hoursMinutes = `${Math.floor(minutesFromNow / 60)}h ${minutesFromNow % 60}m`;
+        displayTime += ` (${hoursMinutes})`;
+      } catch (e) {
+        console.error("Error formatting time:", e);
+      }
+      
+      timeCell.textContent = displayTime;
+      
+      // Format repair cost
+      const repairCell = document.createElement('td');
+      repairCell.style.textAlign = 'right';
+      repairCell.style.padding = '5px';
+      repairCell.style.borderBottom = '1px solid #333';
+      repairCell.textContent = `${projection.pumpCount} pumps (${projection.repairCost.toFixed(2)} cOIL)`;
+      
+      // Format balance before repair
+      const beforeCell = document.createElement('td');
+      beforeCell.style.textAlign = 'right';
+      beforeCell.style.padding = '5px';
+      beforeCell.style.borderBottom = '1px solid #333';
+      beforeCell.textContent = `${projection.balanceBeforeRepair.toFixed(2)} cOIL`;
+      
+      // Format balance after repair
+      const afterCell = document.createElement('td');
+      afterCell.style.textAlign = 'right';
+      afterCell.style.padding = '5px';
+      afterCell.style.borderBottom = '1px solid #333';
+      // Only apply red color if not a highlighted row
+      afterCell.style.color = projection.balanceAfterRepair < 0 && !highlightType ? '#FF6666' : 'inherit';
+      afterCell.textContent = `${projection.balanceAfterRepair.toFixed(2)} cOIL`;
+      
+      row.appendChild(timeCell);
+      row.appendChild(repairCell);
+      row.appendChild(beforeCell);
+      row.appendChild(afterCell);
+      
+      tableBody.appendChild(row);
+    }
+    
+    projectionTable.appendChild(tableBody);
+    projectionSection.appendChild(projectionTable);
+  } else {
+    const noProjectionsInfo = document.createElement('p');
+    noProjectionsInfo.style.textAlign = 'center';
+    noProjectionsInfo.style.padding = '10px';
+    noProjectionsInfo.style.fontStyle = 'italic';
+    noProjectionsInfo.style.color = '#aaa';
+    noProjectionsInfo.textContent = 'No repair events found in the next 48 hours.';
+    
+    projectionSection.appendChild(noProjectionsInfo);
   }
-  scheduleTable.appendChild(tableBody);
-  scheduleSection.appendChild(scheduleTable);
-  if (reinvestmentData.pumpPurchaseSchedule && reinvestmentData.pumpPurchaseSchedule.length > displayLimit) {
-    const moreInfo = document.createElement('p');
-    moreInfo.textContent = `...and ${reinvestmentData.pumpPurchaseSchedule.length - displayLimit} more opportunities in the next 24 hours`;
-    moreInfo.style.fontSize = '12px';
-    moreInfo.style.fontStyle = 'italic';
-    moreInfo.style.marginTop = '5px';
-    scheduleSection.appendChild(moreInfo);
-  }
+  
+  // Continue with decay section (unchanged)
   const decaySection = document.createElement('div');
   decaySection.innerHTML = `<h3>Upcoming Pump Decays</h3>`;
+  
   const decayTable = document.createElement('table');
   decayTable.style.width = '100%';
   decayTable.style.borderCollapse = 'collapse';
   decayTable.style.marginTop = '10px';
+  
   const decayTableHeader = document.createElement('thead');
   decayTableHeader.innerHTML = `
     <tr>
@@ -1385,22 +1452,27 @@ function displayResults(dashboardData, plotsWithDetails, reinvestmentData) {
     </tr>
   `;
   decayTable.appendChild(decayTableHeader);
+  
   const decayTableBody = document.createElement('tbody');
+  
   let displayBatches = [];
   if (reinvestmentData.decayBatches && Array.isArray(reinvestmentData.decayBatches)) {
     displayBatches = reinvestmentData.decayBatches
-      .filter(batch => batch &&
-        (typeof batch.minute === 'number' || typeof batch.minuteOffset === 'number') &&
+      .filter(batch => batch && 
+        (typeof batch.minute === 'number' || typeof batch.minuteOffset === 'number') && 
         (batch.minute <= 24 * 60 || batch.minuteOffset <= 24 * 60))
       .slice(0, 30);
   }
+  
   if (displayBatches.length > 0) {
     for (const batch of displayBatches) {
       const row = document.createElement('tr');
+      
       const timeCell = document.createElement('td');
       timeCell.style.textAlign = 'left';
       timeCell.style.padding = '5px';
       timeCell.style.borderBottom = '1px solid #333';
+      
       let displayTime = "Unknown";
       try {
         if (batch.time instanceof Date && !isNaN(batch.time.getTime())) {
@@ -1413,6 +1485,7 @@ function displayResults(dashboardData, plotsWithDetails, reinvestmentData) {
           const minutes = batch.minute || batch.minuteOffset || 0;
           const decayTime = new Date(now.getTime() + minutes * 60 * 1000);
           displayTime = formatTime(decayTime);
+          
           const hours = Math.floor(minutes / 60);
           const mins = minutes % 60;
           const remainingTime = `${hours}h ${mins}m`;
@@ -1421,20 +1494,25 @@ function displayResults(dashboardData, plotsWithDetails, reinvestmentData) {
       } catch (e) {
         console.error("Error formatting decay time:", e);
       }
+      
       timeCell.textContent = displayTime;
+      
       const pumpsCell = document.createElement('td');
       pumpsCell.style.textAlign = 'right';
       pumpsCell.style.padding = '5px';
       pumpsCell.style.borderBottom = '1px solid #333';
       pumpsCell.textContent = batch.count;
+      
       const costCell = document.createElement('td');
       costCell.style.textAlign = 'right';
       costCell.style.padding = '5px';
       costCell.style.borderBottom = '1px solid #333';
       costCell.textContent = `${(batch.count * 50).toFixed(2)} cOIL`;
+      
       row.appendChild(timeCell);
       row.appendChild(pumpsCell);
       row.appendChild(costCell);
+      
       decayTableBody.appendChild(row);
     }
   } else {
@@ -1447,42 +1525,54 @@ function displayResults(dashboardData, plotsWithDetails, reinvestmentData) {
     row.appendChild(messageCell);
     decayTableBody.appendChild(row);
   }
+  
   decayTable.appendChild(decayTableBody);
   decaySection.appendChild(decayTable);
+  
+  // Plot details section (unchanged)
   const plotsSection = document.createElement('div');
   plotsSection.innerHTML = `<h3>Plot Details</h3>`;
+  
   for (const plot of plotsWithDetails) {
     const plotDiv = document.createElement('div');
     plotDiv.style.marginBottom = '10px';
     plotDiv.style.padding = '5px';
     plotDiv.style.borderLeft = '3px solid #48cae4';
     plotDiv.style.backgroundColor = '#1a1a1a';
-    const validPumpsText = plot.validPumps
+    
+    const validPumpsText = plot.validPumps 
       ? `${plot.validPumps}/${plot.pumps} pumps analyzed`
       : `0/${plot.pumps} pumps analyzed (${plot.error || 'unable to fetch data'})`;
+    
     plotDiv.innerHTML = `
       <p><strong>Plot #${plot.id}</strong> - ${plot.production.toFixed(2)} cOIL/day</p>
       <p>${plot.pumps} pumps (${plot.decayedPumps} decayed)</p>
       <p>${validPumpsText}</p>
     `;
+    
     if (plot.pumpDetails && plot.pumpDetails.length > 0) {
       const decayingIn1h = plot.pumpDetails.filter(p => p.decayHours <= 1).length;
       const decayingIn4h = plot.pumpDetails.filter(p => p.decayHours > 1 && p.decayHours <= 4).length;
       const decayingIn24h = plot.pumpDetails.filter(p => p.decayHours > 4 && p.decayHours <= 24).length;
+      
       const decaySummary = document.createElement('div');
       decaySummary.style.marginTop = '5px';
       decaySummary.style.fontSize = '12px';
       decaySummary.innerHTML = `
         <p>Decaying soon: <strong>${decayingIn1h}</strong> in 1h, <strong>${decayingIn4h}</strong> in 4h, <strong>${decayingIn24h}</strong> in 24h</p>
       `;
+      
       plotDiv.appendChild(decaySummary);
     }
+    
     plotsSection.appendChild(plotDiv);
   }
+  
   resultsContainer.appendChild(summarySection);
-  resultsContainer.appendChild(scheduleSection);
+  resultsContainer.appendChild(projectionSection);
   resultsContainer.appendChild(decaySection);
   resultsContainer.appendChild(plotsSection);
+  
   updateTimestampDisplay();
 }
 

@@ -1,4 +1,4 @@
-# PetroleumLand Helper
+# PetroleumLand Helper (v0.2)
 
 A Chrome extension designed to optimize gameplay in PetroleumLand by analyzing pump data, calculating optimal repair and investment strategies, and automating reward collection.
 
@@ -10,9 +10,10 @@ PetroleumLand Helper enhances your gameplay experience by providing data-driven 
 
 - **Dashboard Analysis**: Calculates hourly and daily production rates across all plots
 - **Decay Tracking**: Monitors upcoming pump decay times and calculates repair costs
-- **Investment Optimization**: Recommends optimal pump purchase strategies based on available funds and future repair needs
+- **Balance Projection**: Provides a detailed timeline of your future balance with repair costs factored in, highlighting potential financial bottlenecks
+- **Lowest Balance Highlighting**: Identifies critical points where your balance will be lowest, helping you plan your investment strategy
 - **Reward Claiming**: Automates the process of claiming rewards from all plots
-- **Time-Sensitive Planning**: Shows when you will have enough funds to build additional pumps
+- **Time-Sensitive Planning**: Shows when upcoming pump decays will occur and their impact on your balance
 
 ## Installation
 
@@ -63,17 +64,18 @@ The extension adds a floating panel to your PetroleumLand dashboard with three m
 After analysis, the extension displays:
 
 1. **Summary**: Overview of your balance, production, and pump count
-2. **Pump Purchase Schedule**: Recommended immediate pump purchases and timeline for future purchases
+2. **Balance Projection**: Timeline of your projected balance, highlighting critical low points in green and yellow
 3. **Upcoming Pump Decays**: Schedule of upcoming pump repairs and their costs
 4. **Plot Details**: Breakdown of pumps and production by plot
 
-### Optimization Strategy
+### Balance Projection Features
 
-The extension uses a repair-first approach to ensure you always have enough funds for necessary repairs while maximizing expansion. It:
+The new balance projection provides:
 
-1. Reserves funds for all upcoming repairs in the next 12 hours
-2. Recommends the maximum number of pumps you can safely purchase now
-3. Projects when you'll be able to purchase additional pumps based on your hourly production
+- Clear visualization of your future balance after each repair event
+- Highlighting of your lowest balance points to help identify financial bottlenecks
+- Accurate calculations that factor in both production and repair costs
+- Time-based view showing exactly when critical balance points will occur
 
 ## Limitations
 
@@ -87,9 +89,24 @@ This extension is built primarily for personal use and has several intentional l
 6. **cOIL Only**: Only accounts for cOIL balance and not OIL balance
 7. **Dashboard Interface Only**: The extension is designed to work with the Dashboard interface of the game, not with the graphical views of the plots
 
+## Changelog
+
+### v0.2
+- Replaced Investment Optimization with Balance Projection feature
+- Added highlighting for lowest balance points to better visualize financial planning
+- Improved repair cost calculations and time display
+- Fixed various bugs related to the "Update Dashboard" functionality
+- Added more precise time tracking for decay events
+
+### v0.1
+- Initial release with basic dashboard analysis
+- Decay tracking and repair cost calculation
+- Investment optimization recommendations
+- Reward claiming automation
+
 ## Disclaimer
 
-This extension is provided as-is in alpha state. The developer assumes no responsibility for any issues, incorrect data, or potential losses incurred while using this tool. Always verify recommendations before making significant in-game decisions.
+This extension is provided as-is. The developer assumes no responsibility for any issues, incorrect data, or potential losses incurred while using this tool. Always verify recommendations before making significant in-game decisions.
 
 This tool was built primarily for personal use according to specific gameplay needs and may not suit all play styles or strategies.
 
